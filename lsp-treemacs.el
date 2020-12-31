@@ -158,8 +158,8 @@
   (-let [(&DocumentSymbol :kind :children?) symbol]
     (concat
      (if (seq-empty-p children?)
-         "   "
-       (if expanded  " ▾ " " ▸ "))
+         "  "
+       (if expanded  "▾ " "▸ "))
      (lsp-treemacs-symbol-icon kind))))
 
 (treemacs-define-expandable-node lsp-symbol
@@ -228,37 +228,37 @@ DocumentSymbols."
                                                       :location (location &as &Location :range (&Range :start start-range))))
                           (when (string= parent-key container-name?)
                             `(:label ,name
-                              :key ,name
-                              :icon ,(lsp-treemacs-symbol-kind->icon kind)
-                              ,@(when (-first (-lambda ((&SymbolInformation :container-name? parent))
-                                                (string= name parent))
-                                              rest)
-                                  (list :children (lsp-treemacs--symbols->tree rest name)))
-                              :kind ,kind
-                              :location ,start-range
-                              :ret-action ,(lambda (&rest _)
-                                             (pop-to-buffer lsp-treemacs--symbols-last-buffer)
-                                             (->> start-range
-                                                  lsp--position-to-point
-                                                  goto-char)
-                                             (run-hooks 'xref-after-jump-hook)))))
+                                     :key ,name
+                                     :icon ,(lsp-treemacs-symbol-kind->icon kind)
+                                     ,@(when (-first (-lambda ((&SymbolInformation :container-name? parent))
+                                                       (string= name parent))
+                                                     rest)
+                                         (list :children (lsp-treemacs--symbols->tree rest name)))
+                                     :kind ,kind
+                                     :location ,start-range
+                                     :ret-action ,(lambda (&rest _)
+                                                    (pop-to-buffer lsp-treemacs--symbols-last-buffer)
+                                                    (->> start-range
+                                                         lsp--position-to-point
+                                                         goto-char)
+                                                    (run-hooks 'xref-after-jump-hook)))))
                         current))
            (seq-map
             (-lambda ((sym &as &DocumentSymbol :name :kind :selection-range
                            (&Range :start start-range) :children?))
               `(:label ,(lsp-render-symbol sym lsp-treemacs-detailed-outline)
-                :key ,name
-                :icon ,(lsp-treemacs-symbol-kind->icon kind)
-                :kind ,kind
-                :location start-range
-                ,@(unless (seq-empty-p children?)
-                    (list :children (lsp-treemacs--symbols->tree children? name)))
-                :ret-action ,(lambda (&rest _)
-                               (pop-to-buffer lsp-treemacs--symbols-last-buffer)
-                               (->> start-range
-                                    lsp--position-to-point
-                                    goto-char)
-                               (run-hooks 'xref-after-jump-hook))))
+                       :key ,name
+                       :icon ,(lsp-treemacs-symbol-kind->icon kind)
+                       :kind ,kind
+                       :location start-range
+                       ,@(unless (seq-empty-p children?)
+                           (list :children (lsp-treemacs--symbols->tree children? name)))
+                       :ret-action ,(lambda (&rest _)
+                                      (pop-to-buffer lsp-treemacs--symbols-last-buffer)
+                                      (->> start-range
+                                           lsp--position-to-point
+                                           goto-char)
+                                      (run-hooks 'xref-after-jump-hook))))
             items))))
 
 (defun lsp-treemacs--update-symbols ()
@@ -396,7 +396,7 @@ will be rendered an empty line between them."
   "Get the symbol for the the kind."
   (-let (((&hash "uri" "kind" "entryKind" entry-kind) dep))
     (concat
-     (if expanded  " ▾ " " ▸ ")
+     (if expanded  "▾ " "▸ ")
      (if (or (= kind 8)
              (= kind 6))
          (treemacs-icon-for-file uri)
@@ -675,10 +675,11 @@ will be rendered an empty line between them."
                                        (puthash node-key (cons t result) lsp-treemacs--generic-cache)
                                        (let ((lsp-treemacs-use-cache t))
                                          (treemacs-update-node (cons :custom node-key) t)))))))
-                      (or (cl-rest (gethash node-key lsp-treemacs--generic-cache))
-                          `((:label ,(propertize "Loading..." 'face 'shadow)
-                                    :icon-literal " "
-                                    :key "Loading..."))))
+                      (if-let ((cache (gethash node-key lsp-treemacs--generic-cache)))
+                          (cl-rest cache)
+                        `((:label ,(propertize "Loading..." 'face 'shadow)
+                                  :icon-literal " "
+                                  :key "Loading..."))))
                      (t children)))
   :ret-action #'lsp-treemacs-perform-ret-action
   :render-action
@@ -705,11 +706,12 @@ will be rendered an empty line between them."
 
 (defun lsp-treemacs--generic-icon (item expanded?)
   "Get the symbol for the the kind."
+  (message ">>>  %s exp = %s" (plist-get item :label) expanded?)
   (concat
    (if (or (plist-get item :children)
            (plist-get item :children-async))
-       (if expanded?  " ▾ " " ▸ ")
-     "   ")
+       (if expanded?  "▾ " "▸ ")
+     "  ")
    (or (plist-get item :icon-literal)
        (if-let ((icon (plist-get item :icon)))
            (treemacs-get-icon-value
@@ -858,13 +860,16 @@ will be rendered an empty line between them."
                                    (interactive)
                                    (lsp-treemacs--open-file-in-mru path)))))))
 
-(defun lsp-treemacs-render (tree title expand-depth &optional buffer-name right-click-actions)
+(defun lsp-treemacs-render (tree title expand-depth &optional buffer-name right-click-actions clear-cache?)
   (let ((search-buffer (get-buffer-create (or buffer-name "*LSP Lookup*"))))
     (with-current-buffer search-buffer
       (lsp-treemacs-initialize)
       (setq-local treemacs-default-visit-action 'treemacs-RET-action)
       (setq-local lsp-treemacs--right-click-actions right-click-actions)
-      (setq-local lsp-treemacs--generic-cache (or lsp-treemacs--generic-cache (ht)))
+      (setq-local lsp-treemacs--generic-cache (if (and lsp-treemacs--generic-cache
+                                                       (not clear-cache?))
+                                                  lsp-treemacs--generic-cache
+                                                (ht)))
       (setq-local lsp-treemacs-tree tree)
       (setq-local face-remapping-alist '((button . default)))
       (lsp-treemacs--set-mode-line-format search-buffer title)
@@ -967,7 +972,7 @@ With a prefix argument, select the new window expand the tree of implementations
           callback
           (seq-map
            (-lambda (node)
-             (-let* (((child-item &as &CallHierarchyItem :name :kind :detail? :uri :selection-range (&Range :start))
+             (-let* (((child-item &as &CallHierarchyItem :kind :uri :selection-range (&Range :start))
                       (if outgoing
                           (lsp:call-hierarchy-outgoing-call-to node)
                         (lsp:call-hierarchy-incoming-call-from node)))
@@ -1014,8 +1019,7 @@ With a prefix argument, show the outgoing call hierarchy."
         (lsp-request "textDocument/prepareCallHierarchy"
                      (lsp--text-document-position-params)))
        (concat (if outgoing "Outgoing" "Incoming") " Call Hierarchy")
-       nil
-       "*Call Hierarchy*") nil))))
+       nil "*Call Hierarchy*" nil t) nil))))
 
 
 
